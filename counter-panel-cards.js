@@ -14,7 +14,7 @@
  * themes carry through. No build step, no dependencies. MIT licence.
  */
 
-const CP_VERSION = "0.1.0";
+const CP_VERSION = "0.2.0";
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -125,9 +125,24 @@ const CP_BASE = `
     background: var(--_panel); border: 1px solid var(--_line); border-radius: 16px;
     box-shadow: none; color: var(--_text); font-family: var(--_body);
     padding: 18px; box-sizing: border-box; overflow: hidden; height: 100%;
+    display: flex; flex-direction: column;
   }
   ha-card.bare { background: transparent; border: none; padding: 4px 2px; }
-  .label { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .label { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex: none; }
+
+  /* Scrolling body: used when the card is given a fixed height (e.g. by the layout's fit_screen). */
+  .scroll {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+    overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin; scrollbar-color: var(--_line) transparent;
+    margin-right: -8px; padding-right: 8px;  /* keep the scrollbar off the content */
+  }
+  .scroll::-webkit-scrollbar { width: 4px; }
+  .scroll::-webkit-scrollbar-thumb { background: var(--_line); border-radius: 4px; }
+  .scroll.fade {
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+            mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+  }
   .label .t {
     font-family: var(--_display); font-size: 13px; font-weight: 600;
     letter-spacing: 1.5px; text-transform: uppercase; color: var(--_dim);
@@ -174,6 +189,8 @@ class CounterBase extends HTMLElement {
 
   disconnectedCallback() {
     clearInterval(this._tickTimer);
+    clearTimeout(this._scrollTimer);
+    this._scrollObserver?.disconnect();
     this._tickTimer = null;
     this.disconnected?.();
   }
@@ -200,8 +217,36 @@ class CounterBase extends HTMLElement {
 
   _draw() {
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    // Keep each scrolling list where the viewer left it when the card refreshes.
+    const saved = {};
+    this.shadowRoot.querySelectorAll("[data-scroll]").forEach((el) => { saved[el.dataset.scroll] = el.scrollTop; });
     this.shadowRoot.innerHTML = `<style>${CP_BASE}${this.styles?.() || ""}</style>${this.render()}`;
     this.afterRender?.();
+    this._wireScroll(saved);
+  }
+
+  /** Restore scroll positions, show a fade when more is below, drift back to the top when idle. */
+  _wireScroll(saved) {
+    this._scrollObserver?.disconnect();
+    const lists = [...this.shadowRoot.querySelectorAll("[data-scroll]")];
+    if (!lists.length) return;
+    const idle = Number(this._config?.scroll_reset ?? 60);
+    const update = (el) => el.classList.toggle("fade", el.scrollHeight - el.scrollTop - el.clientHeight > 4);
+    for (const el of lists) {
+      if (saved[el.dataset.scroll]) el.scrollTop = saved[el.dataset.scroll];
+      update(el);
+      el.addEventListener("scroll", () => {
+        update(el);
+        clearTimeout(this._scrollTimer);
+        if (idle > 0 && el.scrollTop > 0) {
+          this._scrollTimer = setTimeout(() => el.scrollTo({ top: 0, behavior: "smooth" }), idle * 1000);
+        }
+      }, { passive: true });
+    }
+    if (window.ResizeObserver) {
+      this._scrollObserver = new ResizeObserver(() => lists.forEach(update));
+      lists.forEach((el) => this._scrollObserver.observe(el));
+    }
   }
 
   state(id) { return id ? this._hass?.states[id] : undefined; }
@@ -570,7 +615,7 @@ class CounterCalendarCard extends CounterBase {
       return `<div class="day${i === 0 ? " today" : ""}"><h4>${cpEsc(fmt(day.date, i))}</h4>${rows}</div>`;
     }).join("");
     const errs = (this._errors || []).map((id) => `<div class="warn">Couldn't load ${cpEsc(id)}</div>`).join("");
-    return `<ha-card>${head}${errs}<div class="days">${body}</div></ha-card>`;
+    return `<ha-card>${head}${errs}<div class="days scroll" data-scroll="days">${body}</div></ha-card>`;
   }
 }
 
@@ -764,7 +809,7 @@ class CounterShoppingCard extends CounterBase {
       if (limit && open.length > limit) body += `<div class="empty">+${open.length - limit} more</div>`;
       if (shownDone.length) body += `<div class="sect" style="color:var(--_faint)">Got it</div>${shownDone.map(row).join("")}`;
     }
-    return `<ha-card>${head}${this._error ? `<div class="warn">${cpEsc(this._error)}</div>` : ""}<div class="items">${body}</div></ha-card>`;
+    return `<ha-card>${head}${this._error ? `<div class="warn">${cpEsc(this._error)}</div>` : ""}<div class="items scroll" data-scroll="items">${body}</div></ha-card>`;
   }
 
   afterRender() { this.bindActions((uid) => this._toggle(uid)); }
@@ -981,7 +1026,7 @@ class CounterControlsCard extends CounterBase {
     const c = this._config;
     return `<ha-card>
       <div class="label">${cpIcon("bulb", 15, "var(--_accent)")}<span class="t">${cpEsc(c.title)}</span></div>
-      <div class="grid" style="--cols:${c.columns}">${c.items.map((it, i) => this._tile(it, i)).join("")}</div>
+      <div class="scroll" data-scroll="controls"><div class="grid" style="--cols:${c.columns}">${c.items.map((it, i) => this._tile(it, i)).join("")}</div></div>
     </ha-card>`;
   }
 
@@ -1012,7 +1057,7 @@ class CounterControlsCard extends CounterBase {
 class CounterLayoutCard extends HTMLElement {
   setConfig(config) {
     if (!config || !Array.isArray(config.rows)) throw new Error("Add 'rows' to the layout");
-    this._config = { padding: 24, gap: 16, stack_below: 900, ...config };
+    this._config = { padding: 24, gap: 16, stack_below: 900, fit_screen: true, min_column_height: 320, ...config };
     if (config.fonts !== false) cpLoadFonts();
     this._built = false;
     this._build();
@@ -1025,21 +1070,57 @@ class CounterLayoutCard extends HTMLElement {
 
   getCardSize() { return 12; }
 
+  connectedCallback() {
+    this._onResize = () => this._fit();
+    window.addEventListener("resize", this._onResize);
+    window.visualViewport?.addEventListener("resize", this._onResize);
+    requestAnimationFrame(() => this._fit());
+  }
+
+  disconnectedCallback() {
+    window.removeEventListener("resize", this._onResize);
+    window.visualViewport?.removeEventListener("resize", this._onResize);
+  }
+
+  /** fit_screen: size the page to the space below the card's top edge, so only the cards scroll. */
+  _fit() {
+    const page = this.shadowRoot?.querySelector(".page");
+    if (!page || !this._config?.fit_screen) return;
+    const viewport = window.visualViewport?.height || window.innerHeight;
+    const top = Math.max(0, this.getBoundingClientRect().top);
+    page.style.setProperty("--avail", `${Math.max(480, Math.floor(viewport - top))}px`);
+  }
+
   async _build() {
     const cfg = this._config;
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     const pad = Number(cfg.padding) || 0;
     const gap = Number(cfg.gap) || 0;
+    const minCol = Number(cfg.min_column_height) || 0;
     this.shadowRoot.innerHTML = `<style>
       :host { display: block; }
       .page { padding: ${pad}px; display: flex; flex-direction: column; gap: ${gap}px; box-sizing: border-box; }
+      .page > * { flex: none; }
       .cols { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: ${gap}px; align-items: stretch; }
       .cols.top { align-items: start; }
       .col { display: flex; flex-direction: column; gap: ${gap}px; min-width: 0; }
-      .col.fill > :last-child { flex: 1; }
-      @media (max-width: ${Number(cfg.stack_below) || 900}px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+      .col > * { flex: none; }
+      .col.fill > :last-child { flex: 1 1 auto; }
+
+      /* Fit to screen: the growing column row takes the leftover height and its last cards scroll inside. */
+      .page.fit { height: var(--avail, 100vh); }
+      .page.fit > .cols.grow { flex: 1 1 0; min-height: ${minCol}px; grid-template-rows: minmax(0, 1fr); }
+      .page.fit .cols.grow > .col { min-height: 0; }
+      .page.fit .cols.grow > .col.fill > :last-child { flex: 1 1 0; min-height: ${Number(cfg.min_card_height ?? 160)}px; }
+
+      @media (max-width: ${Number(cfg.stack_below) || 900}px) {
+        .cols { grid-template-columns: minmax(0, 1fr); }
+        .page.fit { height: auto; }
+        .page.fit > .cols.grow { flex: none; min-height: 0; grid-template-rows: none; }
+        .page.fit .cols.grow > .col.fill > :last-child { flex: none; }
+      }
       .err { color: var(--error-color, #db4437); padding: 8px; font: 13px sans-serif; }
-    </style><div class="page"></div>`;
+    </style><div class="page${cfg.fit_screen ? " fit" : ""}"></div>`;
     const page = this.shadowRoot.querySelector(".page");
     let helpers;
     try { helpers = await window.loadCardHelpers?.(); } catch (e) { helpers = null; }
@@ -1061,7 +1142,7 @@ class CounterLayoutCard extends HTMLElement {
     for (const row of cfg.rows) {
       if (row.columns) {
         const wrap = document.createElement("div");
-        wrap.className = row.fill_last === false ? "cols top" : "cols";
+        wrap.className = row.fill_last === false ? "cols top" : row.grow === false ? "cols" : "cols grow";
         wrap.style.setProperty("--n", row.columns.length);
         for (const col of row.columns) {
           const colEl = document.createElement("div");
@@ -1075,6 +1156,7 @@ class CounterLayoutCard extends HTMLElement {
       }
     }
     if (this._hass) this.hass = this._hass;
+    requestAnimationFrame(() => this._fit());
   }
 }
 

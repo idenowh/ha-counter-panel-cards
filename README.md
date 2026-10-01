@@ -43,14 +43,20 @@ Copy `counter-panel-cards.js` to `config/www/`, then Settings → Dashboards →
 type: custom:counter-layout-card
 padding: 24        # outer padding, px
 gap: 16            # space between cards, px
-stack_below: 900   # below this screen width, columns stack
+stack_below: 900   # below this screen width, columns stack (and the page scrolls normally)
+fit_screen: true   # fill exactly the screen height; the last card in each column scrolls inside instead of the page
+min_column_height: 320   # the column row never gets shorter than this
+min_card_height: 160     # a scrolling card never gets shorter than this
 rows:
   - card: { type: custom:counter-header-card, ... }      # one full-width card
   - columns:                                              # equal-width columns
       - [ { type: custom:counter-calendar-card, ... } ]
       - [ { ... }, { ... } ]
     fill_last: true  # last card in each column stretches to the row's height (default)
+    grow: true       # with fit_screen, this row takes the height left over (default for column rows)
 ```
+
+With `fit_screen`, the calendar, shopping list and controls cards scroll inside themselves: titles stay put, a fade shows when there's more below, the list keeps its place when the card refreshes, and it slides back to the top after a minute without a touch. Set `scroll_reset` on any of those cards (seconds, `0` to turn off) to change that.
 
 ### counter-header-card
 `subtitle`, `temperature_entity` (climate or sensor), `temperature_label` (default "Indoors"), `alarm_entity`. Tapping a pill opens that entity.
