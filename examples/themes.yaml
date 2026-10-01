@@ -1,0 +1,103 @@
+# Replace config/themes.yaml with this (or merge it in). Same four seasonal themes as before,
+# now with the extra Counter Panel tokens and fonts the cards read.
+# After saving: Cmd/Ctrl+K → "Reload themes" (or restart).
+
+counterpanel_spring:
+  primary-color: "#7FA07A"
+  accent-color: "#7FA07A"
+  primary-background-color: "#1B1A17"
+  card-background-color: "#242220"
+  primary-text-color: "#F1ECE4"
+  secondary-text-color: "#9C9488"
+  divider-color: "#3A362F"
+  primary-font-family: '"Work Sans", system-ui, sans-serif'
+  ha-card-border-radius: "16px"
+  ha-card-border-color: "#3A362F"
+  ha-card-box-shadow: "none"
+  cp-panel: "#242220"
+  cp-line: "#3A362F"
+  cp-rule: "#2C2A27"
+  cp-tile: "#1F1D1A"
+  cp-faint: "#635D53"
+  cp-sage: "#7FA07A"
+  cp-amber: "#D9A441"
+  cp-red: "#D2645A"
+  cp-blue: "#6C93AD"
+  cp-font-display: '"Barlow Condensed", "Arial Narrow", sans-serif'
+  cp-font-body: '"Work Sans", system-ui, sans-serif'
+  cp-font-mono: '"IBM Plex Mono", ui-monospace, monospace'
+
+counterpanel_summer:
+  primary-color: "#D9A441"
+  accent-color: "#D9A441"
+  primary-background-color: "#1B1A17"
+  card-background-color: "#242220"
+  primary-text-color: "#F1ECE4"
+  secondary-text-color: "#9C9488"
+  divider-color: "#3A362F"
+  primary-font-family: '"Work Sans", system-ui, sans-serif'
+  ha-card-border-radius: "16px"
+  ha-card-border-color: "#3A362F"
+  ha-card-box-shadow: "none"
+  cp-panel: "#242220"
+  cp-line: "#3A362F"
+  cp-rule: "#2C2A27"
+  cp-tile: "#1F1D1A"
+  cp-faint: "#635D53"
+  cp-sage: "#7FA07A"
+  cp-amber: "#D9A441"
+  cp-red: "#D2645A"
+  cp-blue: "#6C93AD"
+  cp-font-display: '"Barlow Condensed", "Arial Narrow", sans-serif'
+  cp-font-body: '"Work Sans", system-ui, sans-serif'
+  cp-font-mono: '"IBM Plex Mono", ui-monospace, monospace'
+
+counterpanel_autumn:
+  primary-color: "#C97A46"
+  accent-color: "#C97A46"
+  primary-background-color: "#1B1A17"
+  card-background-color: "#242220"
+  primary-text-color: "#F1ECE4"
+  secondary-text-color: "#9C9488"
+  divider-color: "#3A362F"
+  primary-font-family: '"Work Sans", system-ui, sans-serif'
+  ha-card-border-radius: "16px"
+  ha-card-border-color: "#3A362F"
+  ha-card-box-shadow: "none"
+  cp-panel: "#242220"
+  cp-line: "#3A362F"
+  cp-rule: "#2C2A27"
+  cp-tile: "#1F1D1A"
+  cp-faint: "#635D53"
+  cp-sage: "#7FA07A"
+  cp-amber: "#D9A441"
+  cp-red: "#D2645A"
+  cp-blue: "#6C93AD"
+  cp-font-display: '"Barlow Condensed", "Arial Narrow", sans-serif'
+  cp-font-body: '"Work Sans", system-ui, sans-serif'
+  cp-font-mono: '"IBM Plex Mono", ui-monospace, monospace'
+
+counterpanel_winter:
+  primary-color: "#6C93AD"
+  accent-color: "#6C93AD"
+  primary-background-color: "#1B1A17"
+  card-background-color: "#242220"
+  primary-text-color: "#F1ECE4"
+  secondary-text-color: "#9C9488"
+  divider-color: "#3A362F"
+  primary-font-family: '"Work Sans", system-ui, sans-serif'
+  ha-card-border-radius: "16px"
+  ha-card-border-color: "#3A362F"
+  ha-card-box-shadow: "none"
+  cp-panel: "#242220"
+  cp-line: "#3A362F"
+  cp-rule: "#2C2A27"
+  cp-tile: "#1F1D1A"
+  cp-faint: "#635D53"
+  cp-sage: "#7FA07A"
+  cp-amber: "#D9A441"
+  cp-red: "#D2645A"
+  cp-blue: "#6C93AD"
+  cp-font-display: '"Barlow Condensed", "Arial Narrow", sans-serif'
+  cp-font-body: '"Work Sans", system-ui, sans-serif'
+  cp-font-mono: '"IBM Plex Mono", ui-monospace, monospace'

@@ -1,0 +1,143 @@
+# Kitchen dashboard — Counter Panel layout.
+# Paste as the whole dashboard (Edit → ⋮ → Raw configuration editor), then swap entity IDs for yours.
+# Needs: Counter Panel Cards and League Scoreboard Card (v0.2.0+) installed through HACS.
+
+title: Kitchen
+views:
+  - title: Kitchen
+    path: kitchen
+    type: panel
+    cards:
+      - type: custom:counter-layout-card
+        padding: 24
+        gap: 16
+        rows:
+          # ── Header: clock, date, indoor temperature, alarm
+          - card:
+              type: custom:counter-header-card
+              subtitle: Kitchen · Counter Panel
+              temperature_entity: climate.living_room
+              temperature_label: Indoors
+              alarm_entity: alarm_control_panel.home
+
+          # ── Security: five UniFi Protect cameras
+          - card:
+              type: custom:counter-cameras-card
+              title: Security
+              cameras:
+                - entity: camera.doorbell
+                  name: Doorbell
+                  ring: event.doorbell_doorbell        # or binary_sensor.doorbell_doorbell on older installs
+                  motion: binary_sensor.doorbell_motion
+                - entity: camera.front_yard
+                  name: Front Yard
+                  motion: binary_sensor.front_yard_motion
+                - entity: camera.back_yard
+                  name: Back Yard
+                  motion: binary_sensor.back_yard_motion
+                - entity: camera.downstairs
+                  name: Downstairs
+                  motion: binary_sensor.downstairs_motion
+                - entity: camera.mikko_cam
+                  name: Mikko Cam
+                  motion: binary_sensor.mikko_cam_motion
+
+          # ── Three columns: calendar | meals + shopping | weather & scores + controls
+          - columns:
+              - - type: custom:counter-calendar-card
+                  title: Calendar
+                  days: 7
+                  calendars:
+                    - entity: calendar.denowh_calendar
+                      name: iCloud
+                      color: "#6C93AD"
+                    - entity: calendar.bells_calendar
+                      name: Gmail
+                      color: "#B0698C"
+                    - entity: calendar.j_calendar
+                      name: J
+                      color: "#D9A441"
+                    - entity: calendar.davies_outlook_calendar
+                      name: Outlook
+                      color: "#4FA08A"
+
+              - - type: custom:counter-meals-card
+                  title: Meals This Week
+                  entity: calendar.meals                # a Local Calendar named "Meals": one all-day event per dinner
+                - type: custom:counter-shopping-card
+                  title: Shopping List
+                  entity: todo.shopping_list
+
+              - - type: custom:counter-weather-card
+                  entity: weather.home
+                  scores:
+                    title: Scores
+                    max: 4
+                    teams:
+                      - sensor.chelsea
+                      - sensor.montana_state
+                      - sensor.dallas_stars
+                    entities:
+                      - entity: sensor.nfl_scoreboard
+                        label: NFL
+                      - entity: sensor.ncaaf_top_25
+                        label: CFB
+                      - entity: sensor.big_sky_football
+                        label: BSKY
+                    tap_action:
+                      action: navigate
+                      navigation_path: /dashboard-kitchen/sports
+                - type: custom:counter-controls-card
+                  title: Home Controls
+                  columns: 4
+                  items:
+                    - entity: climate.master_bedroom
+                      name: Master Bedroom
+                    - entity: climate.living_room
+                      name: Living Room
+                    - entity: lock.front_door
+                      name: Front Door Lock
+                    - entity: cover.garage_door
+                      name: Garage Door
+                    - entity: binary_sensor.front_door_contact
+                      name: Front Door
+                    - entity: binary_sensor.back_door_contact
+                      name: Back Door
+                    - entity: media_player.apple_tv
+                      name: Apple TV
+                      placeholder: true                 # remove once the Apple TV integration is set up
+
+  # ── Full Sports page (opened by tapping the scores)
+  - title: Sports
+    path: sports
+    subview: true
+    back_path: /dashboard-kitchen/kitchen
+    type: panel
+    cards:
+      - type: custom:counter-layout-card
+        rows:
+          - card:
+              type: heading
+              heading: ‹ Back to Kitchen
+              tap_action:
+                action: navigate
+                navigation_path: /dashboard-kitchen/kitchen
+          - columns:
+              - - type: custom:league-scoreboard-card
+                  title: My Teams
+                  teams:
+                    - sensor.chelsea
+                    - sensor.montana_state
+                    - sensor.dallas_stars
+                - type: custom:league-scoreboard-card
+                  title: NFL
+                  entity: sensor.nfl_scoreboard
+              - - type: custom:league-scoreboard-card
+                  title: NCAAF Top 25
+                  entity: sensor.ncaaf_top_25
+                - type: custom:league-scoreboard-card
+                  title: Big Sky
+                  entity: sensor.big_sky_football
+                  favorites:
+                    - MTST
+            fill_last: false
