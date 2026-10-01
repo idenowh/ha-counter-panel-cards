@@ -27,9 +27,9 @@ views:
               alarm_entity: alarm_control_panel.home
               tile_width: 210
               controls:
-                - entity: climate.living_room
+                - entity: climate.main_floor
                   name: Living Room
-                - entity: climate.master_bedroom
+                - entity: climate.bedroom
                   name: Master Bedroom
                 - entity: lock.front_door
                   name: Front Door Lock
@@ -39,9 +39,8 @@ views:
                   name: Front Door
                 - entity: binary_sensor.back_door_contact
                   name: Back Door
-                - entity: media_player.apple_tv
+                - entity: media_player.living_room_living_room
                   name: Apple TV
-                  placeholder: true             # remove once the Apple TV integration is set up
 
           # ── Security: five UniFi Protect cameras
           # live: true plays the real video stream in the tile; the others are snapshots every `refresh` seconds.
@@ -51,23 +50,23 @@ views:
               title: Security
               refresh: 2                               # snapshot tiles: a new picture every 2 s
               cameras:
-                - entity: camera.doorbell
+                - entity: camera.doorbell_high_resolution_channel
                   name: Doorbell
                   live: true
-                  # stream_entity: camera.doorbell_medium_resolution_channel   # optional lighter stream for the tile
+                  # stream_entity: camera.doorbell_medium_resolution_channel   # optional lighter stream for the tile (enable it on the camera's device page first)
                   ring: event.doorbell_doorbell        # or binary_sensor.doorbell_doorbell on older installs
                   motion: binary_sensor.doorbell_motion
-                - entity: camera.front_yard
+                - entity: camera.front_camera_high_resolution_channel
                   name: Front Yard
                   live: true
-                  motion: binary_sensor.front_yard_motion
-                - entity: camera.back_yard
+                  motion: binary_sensor.front_camera_motion_motion
+                - entity: camera.backyard_high_resolution_channel
                   name: Back Yard
-                  motion: binary_sensor.back_yard_motion
-                - entity: camera.downstairs
+                  motion: binary_sensor.backyard_motion
+                - entity: camera.downstairs_high_resolution_channel
                   name: Downstairs
                   motion: binary_sensor.downstairs_motion
-                - entity: camera.mikko_cam
+                - entity: camera.mikko_cam_high_resolution_channel
                   name: Mikko Cam
                   motion: binary_sensor.mikko_cam_motion
 
@@ -78,16 +77,16 @@ views:
                   days: 7
                   calendars:
                     - entity: calendar.denowh_calendar
-                      name: iCloud
+                      name: Family
                       color: "#6C93AD"
                     - entity: calendar.bells_calendar
-                      name: Gmail
+                      name: B
                       color: "#B0698C"
                     - entity: calendar.j_calendar
                       name: J
                       color: "#D9A441"
                     - entity: calendar.davies_outlook_calendar
-                      name: Outlook
+                      name: DEG
                       color: "#4FA08A"
 
               - - type: custom:counter-meals-card
@@ -98,7 +97,7 @@ views:
                   entity: todo.shopping_list
 
               - - type: custom:counter-weather-card
-                  entity: weather.home
+                  entity: weather.forecast_home
                 - type: custom:league-scoreboard-card
                   title: Scores
                   mode: compact
@@ -106,7 +105,7 @@ views:
                   max: 0                                # no limit: the card scrolls
                   teams:
                     - sensor.chelsea
-                    - sensor.montana_state
+                    - sensor.montana_state_bobcats
                     - sensor.dallas_stars
                   entities:
                     - entity: sensor.nfl_scoreboard
@@ -130,7 +129,7 @@ views:
         rows:
           - card:
               type: heading
-              heading: ‹ Back to Kitchen
+              heading: Back to Kitchen
               tap_action:
                 action: navigate
                 navigation_path: /dashboard-kitchen/kitchen
@@ -139,7 +138,7 @@ views:
                   title: My Teams
                   teams:
                     - sensor.chelsea
-                    - sensor.montana_state
+                    - sensor.montana_state_bobcats
                     - sensor.dallas_stars
                 - type: custom:league-scoreboard-card
                   title: NFL
