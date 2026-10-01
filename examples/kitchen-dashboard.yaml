@@ -1,6 +1,6 @@
 # Kitchen dashboard — Counter Panel layout.
 # Paste as the whole dashboard (Edit → ⋮ → Raw configuration editor), then swap entity IDs for yours.
-# Needs (all through HACS): Counter Panel Cards v0.3.0+, League Scoreboard Card v0.3.0+, Kiosk Mode.
+# Needs (all through HACS): Counter Panel Cards v0.4.0+, League Scoreboard Card v0.4.0+, Kiosk Mode.
 
 # Hide Home Assistant's top bar ("Kitchen" + the Assist bubble) and the sidebar for non-admin
 # users, i.e. the Kitchen Display account on the iPad. Your own admin login keeps them so you
@@ -44,16 +44,22 @@ views:
                   placeholder: true             # remove once the Apple TV integration is set up
 
           # ── Security: five UniFi Protect cameras
+          # live: true plays the real video stream in the tile; the others are snapshots every `refresh` seconds.
+          # Each live stream is work for the iPad: start with one or two and add more if it stays smooth.
           - card:
               type: custom:counter-cameras-card
               title: Security
+              refresh: 2                               # snapshot tiles: a new picture every 2 s
               cameras:
                 - entity: camera.doorbell
                   name: Doorbell
+                  live: true
+                  # stream_entity: camera.doorbell_medium_resolution_channel   # optional lighter stream for the tile
                   ring: event.doorbell_doorbell        # or binary_sensor.doorbell_doorbell on older installs
                   motion: binary_sensor.doorbell_motion
                 - entity: camera.front_yard
                   name: Front Yard
+                  live: true
                   motion: binary_sensor.front_yard_motion
                 - entity: camera.back_yard
                   name: Back Yard
@@ -144,5 +150,6 @@ views:
                 - type: custom:league-scoreboard-card
                   title: Big Sky
                   entity: sensor.big_sky_football
+                  visible_games: 3                      # three games tall; scroll for the rest
                   favorites:
                     - MTST

@@ -14,7 +14,7 @@
  * themes carry through. No build step, no dependencies. MIT licence.
  */
 
-const CP_VERSION = "0.3.0";
+const CP_VERSION = "0.4.0";
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -467,6 +467,12 @@ class CounterHeaderCard extends CounterBase {
 
 /* ------------------------------------------------------------ cameras card */
 
+/**
+ * Camera tiles. Each tile is either a snapshot that refreshes every `refresh` seconds,
+ * or (with `live: true`) Home Assistant's own live stream, embedded through a picture-entity card.
+ * The tiles are built once and then updated in place, so live streams are never torn down
+ * by a state change (a motion badge appearing, a doorbell press...).
+ */
 class CounterCamerasCard extends CounterBase {
   static getStubConfig(hass) {
     const cams = Object.keys(hass?.states || {}).filter((id) => id.startsWith("camera.")).slice(0, 4);
@@ -476,19 +482,29 @@ class CounterCamerasCard extends CounterBase {
 
   validate(c) {
     if (!Array.isArray(c.cameras) || !c.cameras.length) throw new Error("Add at least one camera under 'cameras'");
-    c.cameras = c.cameras.map((x) => (typeof x === "string" ? { entity: x } : x));
+    c.cameras = c.cameras.map((x) => (typeof x === "string" ? { entity: x } : { ...x }));
     c.title = c.title ?? "Security";
     c.recent_minutes = c.recent_minutes ?? 5;
-    this.tickMs = Math.max(2, Number(c.refresh) || 10) * 1000;
+    for (const cam of c.cameras) cam.live = cam.live ?? c.live ?? false;
+    // Tiles keep the camera's shape (16:9) unless a fixed height is given.
+    c.aspect_ratio = c.height ? null : String(c.aspect_ratio || "16:9");
+    this.tickMs = Math.max(1, Number(c.refresh) || 10) * 1000;
+    this._built = false;
     return c;
   }
 
-  entities() {
-    return this._config.cameras.flatMap((c) => [c.entity, c.motion, c.ring]).filter(Boolean);
+  setConfig(config) {
+    // A new config means new tiles; drop the old live players.
+    this._live = new Map();
+    super.setConfig(config);
+    if (this._tickTimer) { clearInterval(this._tickTimer); this._tickTimer = setInterval(() => this.tick(), this.tickMs); }
   }
 
-  // The camera image URL carries a rotating access token, so only re-render when
-  // states change; refresh the pictures on a timer instead.
+  entities() {
+    return this._config.cameras.flatMap((c) => [c.entity, c.stream_entity, c.motion, c.ring]).filter(Boolean);
+  }
+
+  // Badge ages ("2 min ago") change every minute even when no state does.
   signature(hass) {
     return this.entities().map((id) => {
       const s = hass.states[id];
@@ -496,10 +512,19 @@ class CounterCamerasCard extends CounterBase {
     }).join("|") + `|${Math.floor(Date.now() / 60000)}`;
   }
 
+  hassChanged() {
+    // Live players need every hass update (it carries the stream access tokens).
+    for (const card of this._live?.values() || []) card.hass = this._hass;
+  }
+
+  /** Refresh snapshot tiles. A tile still loading its last picture is skipped, so slow cameras don't pile up requests. */
   tick() {
     this.shadowRoot?.querySelectorAll("img[data-cam]").forEach((img) => {
+      if (img.dataset.loading === "1") return;
       const url = this._imageUrl(img.dataset.cam);
-      if (url) img.src = url;
+      if (!url) return;
+      img.dataset.loading = "1";
+      img.src = url;
     });
   }
 
@@ -513,29 +538,39 @@ class CounterCamerasCard extends CounterBase {
     return `
       .grid { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 12px; }
       .tile {
-        position: relative; height: var(--h, 150px); border-radius: 12px; overflow: hidden;
-        border: 1px solid var(--_line);
+        position: relative; height: var(--h, auto); aspect-ratio: var(--ar, auto);
+        border-radius: 12px; overflow: hidden; border: 1px solid var(--_line);
         background: linear-gradient(135deg, color-mix(in srgb, var(--_panel) 85%, white 6%), color-mix(in srgb, var(--_panel) 80%, black 20%));
         display: flex; flex-direction: column; justify-content: flex-end; padding: 10px; box-sizing: border-box;
+        isolation: isolate;
       }
-      .tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-      .tile .shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.35) 0%, transparent 35%, transparent 55%, rgba(0,0,0,.65) 100%); }
+      .tile .media { position: absolute; inset: 0; pointer-events: none; }
+      .tile .media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      .tile .media img.gone { visibility: hidden; }
+      .tile .media > .player { position: absolute; inset: 0; display: block; height: 100%;
+        --ha-card-border-radius: 0; --ha-card-border-width: 0; --ha-card-background: transparent; }
+      .tile .shade { position: absolute; inset: 0; pointer-events: none;
+        background: linear-gradient(180deg, rgba(0,0,0,.35) 0%, transparent 35%, transparent 55%, rgba(0,0,0,.65) 100%); }
       .tile .ph { position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%); color: var(--_line); }
       .tile .live { position: absolute; top: 10px; left: 10px; display: flex; align-items: center; gap: 6px;
         font-family: var(--_mono); font-size: 10px; letter-spacing: .5px; color: #E8E3DA; }
       .tile .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--_sage); }
-      .tile .dot.off { background: var(--_faint); }
+      .tile .dot.stream { background: var(--_red); animation: cp-pulse 2s ease-in-out infinite; }
+      .tile .dot.off { background: var(--_faint); animation: none; }
+      @keyframes cp-pulse { 50% { opacity: .35; } }
       .tile .badge { position: absolute; top: 10px; right: 10px; background: var(--_red); color: #1B1A17;
         font-family: var(--_mono); font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 20px; }
+      .tile .badge:empty { display: none; }
       .tile .nm { position: relative; font-family: var(--_display); font-size: 16px; font-weight: 600; color: #F1ECE4; }
       .tile .st { position: relative; font-family: var(--_mono); font-size: 11px; color: #C9C2B7; }
+      .tile .warn { position: relative; }
     `;
   }
 
-  _tile(cam) {
+  /** Badge and status line for one camera. */
+  _status(cam) {
     const s = this.state(cam.entity);
-    if (!s) return `<div class="tile"><div class="warn">Not found: ${cpEsc(cam.entity)}</div></div>`;
-    const online = !["unavailable", "unknown"].includes(s.state);
+    const online = !!s && !["unavailable", "unknown"].includes(s.state);
     const recentMs = this._config.recent_minutes * 60000;
     const recent = (id) => {
       const x = this.state(id);
@@ -556,32 +591,119 @@ class CounterCamerasCard extends CounterBase {
     if (ring && ring.recent) { badge = "RING"; status = `Ring · ${cpAgo(ring.changed)}`; }
     else if (motion && motion.recent) { badge = "MOTION"; status = motion.on ? "Motion now" : `Motion · ${cpAgo(motion.changed)}`; }
     else if (motion && motion.changed) status = `Last motion ${cpAgo(motion.changed)}`;
-    const url = online ? this._imageUrl(cam.entity) : "";
-    return `<div class="tile tap" tabindex="0" role="button" data-act="${cpEsc(cam.entity)}" aria-label="${cpEsc(this.name(cam.entity, cam.name))}">
-      <span class="ph">${cpIcon("camera", 42, "currentColor", 1.2)}</span>
-      ${url ? `<img data-cam="${cpEsc(cam.entity)}" src="${cpEsc(url)}" alt="">` : ""}
-      <div class="shade"></div>
-      <div class="live"><span class="dot${online ? "" : " off"}"></span>${online ? "LIVE" : "OFFLINE"}</div>
-      ${badge ? `<div class="badge">${badge}</div>` : ""}
-      <div class="nm">${cpEsc(this.name(cam.entity, cam.name))}</div>
-      <div class="st">${cpEsc(status)}</div>
-    </div>`;
+    return { exists: !!s, online, badge, status };
   }
 
   render() {
     const c = this._config;
     const cols = c.columns || Math.min(c.cameras.length, 5);
+    const size = c.aspect_ratio ? `--ar:${cpEsc(c.aspect_ratio.replace(":", " / "))}` : `--h:${Number(c.height) || 150}px`;
     return `<ha-card>
       <div class="label">${cpIcon("camera", 15, "var(--_dim)")}<span class="t">${cpEsc(c.title)}</span>
         <span class="n">${c.cameras.length} camera${c.cameras.length === 1 ? "" : "s"}</span></div>
-      <div class="grid" style="--cols:${cols}; --h:${Number(c.height) || 150}px">${c.cameras.map((cam) => this._tile(cam)).join("")}</div>
+      <div class="grid" style="--cols:${cols}; ${size}">${c.cameras.map((cam, i) => `
+        <div class="tile tap" tabindex="0" role="button" data-i="${i}" data-act="${cpEsc(cam.entity)}" aria-label="${cpEsc(this.name(cam.entity, cam.name))}">
+          <span class="ph">${cpIcon("camera", 42, "currentColor", 1.2)}</span>
+          <div class="media"></div>
+          <div class="shade"></div>
+          <div class="live"><span class="dot"></span><span class="lt"></span></div>
+          <div class="badge"></div>
+          <div class="nm">${cpEsc(this.name(cam.entity, cam.name))}</div>
+          <div class="st"></div>
+        </div>`).join("")}
+      </div>
     </ha-card>`;
   }
 
-  afterRender() {
-    this.bindActions((id) => this.handleAction(this._config.tap_action, id));
-    this.shadowRoot.querySelectorAll("img[data-cam]").forEach((img) =>
-      img.addEventListener("error", () => { img.style.visibility = "hidden"; }));
+  // Build the tiles once; afterwards only update what changed, in place.
+  _draw() {
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    if (!this._built) {
+      for (const card of this._live.values()) card.remove();
+      this._live = new Map();
+      this.shadowRoot.innerHTML = `<style>${CP_BASE}${this.styles()}</style>${this.render()}`;
+      this.bindActions((id) => this.handleAction(this._config.tap_action, id));
+      this._built = true;
+    }
+    this._update();
+  }
+
+  _update() {
+    this._config.cameras.forEach((cam, i) => {
+      const tile = this.shadowRoot.querySelector(`.tile[data-i="${i}"]`);
+      if (!tile) return;
+      const st = this._status(cam);
+      const media = tile.querySelector(".media");
+      const dot = tile.querySelector(".dot");
+      const lt = tile.querySelector(".lt");
+      const live = cam.live && st.online;
+
+      if (!st.exists) {
+        media.replaceChildren();
+        tile.querySelector(".st").innerHTML = `<span class="warn">Not found: ${cpEsc(cam.entity)}</span>`;
+        tile.querySelector(".badge").textContent = "";
+        dot.className = "dot off"; lt.textContent = "MISSING";
+        return;
+      }
+      if (live) this._ensurePlayer(cam, i, media);
+      else if (st.online) this._ensureSnapshot(cam, i, media);
+      else { this._dropPlayer(i); media.replaceChildren(); }
+
+      dot.className = `dot${!st.online ? " off" : live ? " stream" : ""}`;
+      lt.textContent = !st.online ? "OFFLINE" : "LIVE";
+      tile.querySelector(".badge").textContent = st.badge;
+      tile.querySelector(".st").textContent = st.status;
+    });
+  }
+
+  _ensureSnapshot(cam, i, media) {
+    this._dropPlayer(i);
+    if (media.querySelector("img")) return;
+    const img = document.createElement("img");
+    img.alt = "";
+    img.dataset.cam = cam.entity;
+    img.addEventListener("load", () => { img.dataset.loading = "0"; img.classList.remove("gone"); });
+    img.addEventListener("error", () => { img.dataset.loading = "0"; img.classList.add("gone"); });
+    img.dataset.loading = "1";
+    img.src = this._imageUrl(cam.entity);
+    media.replaceChildren(img);
+  }
+
+  _ensurePlayer(cam, i, media) {
+    const existing = this._live.get(i);
+    if (existing) { if (existing.parentNode !== media) media.replaceChildren(existing); return; }
+    if (this._live.has(`pending${i}`)) return;
+    this._live.set(`pending${i}`, true);
+    // Show the snapshot until the player is ready (and keep it if the frontend can't make one).
+    this._ensureSnapshot(cam, i, media);
+    const cfg = {
+      type: "picture-entity",
+      entity: cam.stream_entity || cam.entity,
+      camera_view: "live",
+      show_name: false,
+      show_state: false,
+      fit_mode: "cover",
+      tap_action: { action: "none" },
+      hold_action: { action: "none" },
+    };
+    if (this._config.aspect_ratio) cfg.aspect_ratio = this._config.aspect_ratio;
+    const make = window.loadCardHelpers
+      ? window.loadCardHelpers().then((h) => h.createCardElement(cfg))
+      : Promise.reject(new Error("no card helpers"));
+    make.then((card) => {
+      this._live.delete(`pending${i}`);
+      if (!this._built || this._config.cameras[i] !== cam) return;   // config changed while loading
+      card.classList.add("player");
+      card.hass = this._hass;
+      this._live.set(i, card);
+      const tile = this.shadowRoot.querySelector(`.tile[data-i="${i}"] .media`);
+      if (tile) tile.replaceChildren(card);
+    }).catch(() => { this._live.delete(`pending${i}`); });
+  }
+
+  _dropPlayer(i) {
+    const card = this._live.get(i);
+    if (card) { card.remove(); this._live.delete(i); }
   }
 }
 
@@ -1289,7 +1411,7 @@ class CounterLayoutCard extends HTMLElement {
 const CP_CARDS = [
   ["counter-layout-card", CounterLayoutCard, "Counter Panel: layout", "Full-width rows and equal columns with the panel's spacing."],
   ["counter-header-card", CounterHeaderCard, "Counter Panel: header", "Clock, date, indoor temperature and alarm status."],
-  ["counter-cameras-card", CounterCamerasCard, "Counter Panel: cameras", "Camera tiles with live snapshots and motion / doorbell badges."],
+  ["counter-cameras-card", CounterCamerasCard, "Counter Panel: cameras", "Camera tiles with live video or snapshots and motion / doorbell badges."],
   ["counter-calendar-card", CounterCalendarCard, "Counter Panel: calendar", "Agenda merged from several calendars, a colour per calendar."],
   ["counter-meals-card", CounterMealsCard, "Counter Panel: meals", "This week's meals from a calendar, Monday to Sunday."],
   ["counter-shopping-card", CounterShoppingCard, "Counter Panel: shopping list", "A to-do list you can tick off from the panel."],

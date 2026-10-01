@@ -10,7 +10,7 @@ A matching set of Home Assistant dashboard cards for a wall-mounted kitchen pane
 |---|---|---|
 | `counter-layout-card` | Full-width rows and equal columns with the panel's spacing; columns stack on narrow screens | other cards |
 | `counter-header-card` | Clock and date, a sideways-scrolling strip of home controls, alarm status | thermostats, locks, covers, door sensors, lights…, an `alarm_control_panel` |
-| `counter-cameras-card` | Camera tiles: snapshot, LIVE dot, MOTION / RING badge, last motion | `camera`, motion `binary_sensor`, doorbell `event` or `binary_sensor` |
+| `counter-cameras-card` | Camera tiles: live video or snapshots, LIVE dot, MOTION / RING badge, last motion | `camera`, motion `binary_sensor`, doorbell `event` or `binary_sensor` |
 | `counter-calendar-card` | Agenda for the next days, merged from several calendars, a colour per calendar | `calendar` entities |
 | `counter-meals-card` | Monday–Sunday dinners | a `calendar` (e.g. a Local Calendar called Meals) or a fixed list |
 | `counter-shopping-card` | A to-do list you tick off from the panel, grouped by aisle | a `todo` entity |
@@ -89,15 +89,23 @@ The clock updates without redrawing the strip, and the strip keeps its scroll po
 cameras:
   - entity: camera.doorbell
     name: Doorbell
+    live: true                          # play the real video stream in the tile
+    stream_entity: camera.doorbell_medium_resolution_channel   # optional: lighter stream for the tile; tap still opens camera.doorbell
     ring: event.doorbell_doorbell       # event or binary_sensor; shows RING for a few minutes after a press
     motion: binary_sensor.doorbell_motion
+  - entity: camera.back_yard            # no live: a snapshot every `refresh` seconds
 title: Security
+live: false         # default for every camera (each camera's own `live` wins)
 columns: 5          # default: number of cameras, max 5
-height: 150         # tile height, px
-refresh: 10         # snapshot refresh, seconds
+aspect_ratio: "16:9"   # tile shape (default); or set `height: 150` for a fixed height in px
+refresh: 10         # snapshot refresh, seconds (1 or more)
 recent_minutes: 5   # how long MOTION / RING badges stay up
-tap_action: { action: more-info }   # default; opens the live stream
+tap_action: { action: more-info }   # default; opens the full-size stream
 ```
+
+**Live vs snapshots.** A snapshot tile asks Home Assistant for a still picture every `refresh` seconds; it is light on the tablet but looks choppy. A `live: true` tile embeds Home Assistant's own player (WebRTC or HLS, whichever your setup offers), so it's real video with a delay of roughly 1–3 seconds. Each live tile is a video the tablet has to decode, so on an older iPad keep live to the one or two cameras you watch most and give the rest `refresh: 2`. The tiles are built once and updated in place, so a motion badge or doorbell press never restarts a stream.
+
+**UniFi Protect tips.** If a camera has no live stream, Home Assistant shows a repair under Settings → Repairs offering to turn on RTSPS for it; accept it. Protect also makes medium- and low-resolution versions of each camera (disabled by default): enable one on the camera's device page and use it as `stream_entity` so the small tile doesn't pull the full-resolution stream.
 
 ### counter-calendar-card
 `calendars` (list of `{entity, name, color}`), `days` (default 7, max 14), `max_events_per_day` (default 6), `show_legend`, `title`. Colours accept hex (`"#6C93AD"`). Without a colour, each calendar gets the next colour from the panel palette.
