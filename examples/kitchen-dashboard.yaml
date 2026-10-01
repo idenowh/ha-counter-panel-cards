@@ -1,6 +1,14 @@
 # Kitchen dashboard — Counter Panel layout.
 # Paste as the whole dashboard (Edit → ⋮ → Raw configuration editor), then swap entity IDs for yours.
-# Needs: Counter Panel Cards and League Scoreboard Card (v0.2.0+) installed through HACS.
+# Needs (all through HACS): Counter Panel Cards v0.3.0+, League Scoreboard Card v0.3.0+, Kiosk Mode.
+
+# Hide Home Assistant's top bar ("Kitchen" + the Assist bubble) and the sidebar for non-admin
+# users, i.e. the Kitchen Display account on the iPad. Your own admin login keeps them so you
+# can still edit. On any device: add ?kiosk to the address to hide them, ?disable_km to show them.
+kiosk_mode:
+  non_admin_settings:
+    hide_header: true
+    hide_sidebar: true
 
 title: Kitchen
 views:
@@ -12,13 +20,28 @@ views:
         padding: 24
         gap: 16
         rows:
-          # ── Header: clock, date, indoor temperature, alarm
+          # ── Header: clock and date, then every home control in a sideways-scrolling strip, alarm pinned right
           - card:
               type: custom:counter-header-card
               subtitle: Kitchen · Counter Panel
-              temperature_entity: climate.living_room
-              temperature_label: Indoors
               alarm_entity: alarm_control_panel.home
+              tile_width: 210
+              controls:
+                - entity: climate.living_room
+                  name: Living Room
+                - entity: climate.master_bedroom
+                  name: Master Bedroom
+                - entity: lock.front_door
+                  name: Front Door Lock
+                - entity: cover.garage_door
+                  name: Garage Door
+                - entity: binary_sensor.front_door_contact
+                  name: Front Door
+                - entity: binary_sensor.back_door_contact
+                  name: Back Door
+                - entity: media_player.apple_tv
+                  name: Apple TV
+                  placeholder: true             # remove once the Apple TV integration is set up
 
           # ── Security: five UniFi Protect cameras
           - card:
@@ -42,7 +65,7 @@ views:
                   name: Mikko Cam
                   motion: binary_sensor.mikko_cam_motion
 
-          # ── Three columns: calendar | meals + shopping | weather & scores + controls
+          # ── Three columns, each scrolling inside its cards: calendar | meals + shopping | weather + scores
           - columns:
               - - type: custom:counter-calendar-card
                   title: Calendar
@@ -70,42 +93,25 @@ views:
 
               - - type: custom:counter-weather-card
                   entity: weather.home
-                  scores:
-                    title: Scores
-                    max: 4
-                    teams:
-                      - sensor.chelsea
-                      - sensor.montana_state
-                      - sensor.dallas_stars
-                    entities:
-                      - entity: sensor.nfl_scoreboard
-                        label: NFL
-                      - entity: sensor.ncaaf_top_25
-                        label: CFB
-                      - entity: sensor.big_sky_football
-                        label: BSKY
-                    tap_action:
-                      action: navigate
-                      navigation_path: /dashboard-kitchen/sports
-                - type: custom:counter-controls-card
-                  title: Home Controls
-                  columns: 4
-                  items:
-                    - entity: climate.master_bedroom
-                      name: Master Bedroom
-                    - entity: climate.living_room
-                      name: Living Room
-                    - entity: lock.front_door
-                      name: Front Door Lock
-                    - entity: cover.garage_door
-                      name: Garage Door
-                    - entity: binary_sensor.front_door_contact
-                      name: Front Door
-                    - entity: binary_sensor.back_door_contact
-                      name: Back Door
-                    - entity: media_player.apple_tv
-                      name: Apple TV
-                      placeholder: true                 # remove once the Apple TV integration is set up
+                - type: custom:league-scoreboard-card
+                  title: Scores
+                  mode: compact
+                  style: counter
+                  max: 0                                # no limit: the card scrolls
+                  teams:
+                    - sensor.chelsea
+                    - sensor.montana_state
+                    - sensor.dallas_stars
+                  entities:
+                    - entity: sensor.nfl_scoreboard
+                      label: NFL
+                    - entity: sensor.ncaaf_top_25
+                      label: CFB
+                    - entity: sensor.big_sky_football
+                      label: BSKY
+                  tap_action:
+                    action: navigate
+                    navigation_path: /dashboard-kitchen/sports
 
   # ── Full Sports page (opened by tapping the scores)
   - title: Sports
@@ -140,4 +146,3 @@ views:
                   entity: sensor.big_sky_football
                   favorites:
                     - MTST
-            fill_last: false

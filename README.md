@@ -9,15 +9,28 @@ A matching set of Home Assistant dashboard cards for a wall-mounted kitchen pane
 | Card | Shows | Reads |
 |---|---|---|
 | `counter-layout-card` | Full-width rows and equal columns with the panel's spacing; columns stack on narrow screens | other cards |
-| `counter-header-card` | Clock, date, indoor temperature, alarm status | a `climate` or temperature `sensor`, an `alarm_control_panel` |
+| `counter-header-card` | Clock and date, a sideways-scrolling strip of home controls, alarm status | thermostats, locks, covers, door sensors, lights…, an `alarm_control_panel` |
 | `counter-cameras-card` | Camera tiles: snapshot, LIVE dot, MOTION / RING badge, last motion | `camera`, motion `binary_sensor`, doorbell `event` or `binary_sensor` |
 | `counter-calendar-card` | Agenda for the next days, merged from several calendars, a colour per calendar | `calendar` entities |
 | `counter-meals-card` | Monday–Sunday dinners | a `calendar` (e.g. a Local Calendar called Meals) or a fixed list |
 | `counter-shopping-card` | A to-do list you tick off from the panel, grouped by aisle | a `todo` entity |
-| `counter-weather-card` | Current conditions, today's high/low, 3-day outlook, optional scores | a `weather` entity (+ League Scoreboard Card for scores) |
+| `counter-weather-card` | Current conditions, today's high/low, 3-day outlook (scrolls if space is short) | a `weather` entity (+ League Scoreboard Card for scores) |
 | `counter-controls-card` | Thermostats, locks, garage doors, door sensors, lights/switches, media players, placeholders | those entities |
 
 Colours come from your theme (with Counter Panel defaults), so seasonal theme changes carry through. Everything is plain JavaScript in one file: no build step, no dependencies.
+
+## Hiding Home Assistant's top bar
+
+The panel is meant to run full screen. Install **Kiosk Mode** from HACS and add this at the top of the dashboard YAML (it's in `examples/kitchen-dashboard.yaml`):
+
+```yaml
+kiosk_mode:
+  non_admin_settings:      # e.g. the Kitchen Display login on the iPad; admins still see the bar to edit
+    hide_header: true
+    hide_sidebar: true
+```
+
+Add `?kiosk` to the dashboard address to hide the bar on any device, or `?disable_km` to bring it back.
 
 ## Install
 
@@ -59,7 +72,17 @@ rows:
 With `fit_screen`, the calendar, shopping list and controls cards scroll inside themselves: titles stay put, a fade shows when there's more below, the list keeps its place when the card refreshes, and it slides back to the top after a minute without a touch. Set `scroll_reset` on any of those cards (seconds, `0` to turn off) to change that.
 
 ### counter-header-card
-`subtitle`, `temperature_entity` (climate or sensor), `temperature_label` (default "Indoors"), `alarm_entity`. Tapping a pill opens that entity.
+```yaml
+subtitle: Kitchen · Counter Panel
+alarm_entity: alarm_control_panel.home   # pinned at the right; tap opens it
+tile_width: 210                          # width of each control tile, px
+controls:                                # same items as counter-controls-card; the strip scrolls sideways
+  - entity: climate.living_room
+  - entity: lock.front_door
+  - entity: light.kitchen                # lights/switches toggle on tap
+temperature_entity: climate.living_room  # optional: an extra temperature tile at the start of the strip
+```
+The clock updates without redrawing the strip, and the strip keeps its scroll position through updates (it slides back to the start after `scroll_reset` seconds, default 60). Below 1000 px wide the strip moves onto its own row.
 
 ### counter-cameras-card
 ```yaml

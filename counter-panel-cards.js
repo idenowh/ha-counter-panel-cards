@@ -14,7 +14,7 @@
  * themes carry through. No build step, no dependencies. MIT licence.
  */
 
-const CP_VERSION = "0.2.0";
+const CP_VERSION = "0.3.0";
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -143,6 +143,19 @@ const CP_BASE = `
     -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
             mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
   }
+  /* Horizontal strip */
+  .scroll-x {
+    overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity; scrollbar-width: none;
+  }
+  .scroll-x::-webkit-scrollbar { display: none; }
+  .scroll-x > * { scroll-snap-align: start; }
+  .scroll-x.fade-r { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+                             mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent); }
+  .scroll-x.fade-l { -webkit-mask-image: linear-gradient(to right, transparent, #000 48px);
+                             mask-image: linear-gradient(to right, transparent, #000 48px); }
+  .scroll-x.fade-l.fade-r { -webkit-mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
+                                    mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent); }
   .label .t {
     font-family: var(--_display); font-size: 13px; font-weight: 600;
     letter-spacing: 1.5px; text-transform: uppercase; color: var(--_dim);
@@ -164,6 +177,8 @@ class CounterBase extends HTMLElement {
   setConfig(config) {
     this._config = this.validate({ ...(config || {}) });
     this._sig = null;
+    // Cards with an inner scrolling area tell the layout they can shrink and scroll.
+    if (this.scrollable) this.setAttribute("scrollable", "");
     if (this._config.fonts !== false) cpLoadFonts();
     this._queue();
   }
@@ -189,7 +204,7 @@ class CounterBase extends HTMLElement {
 
   disconnectedCallback() {
     clearInterval(this._tickTimer);
-    clearTimeout(this._scrollTimer);
+    this.shadowRoot?.querySelectorAll("[data-scroll]").forEach((el) => clearTimeout(el._idleTimer));
     this._scrollObserver?.disconnect();
     this._tickTimer = null;
     this.disconnected?.();
@@ -219,27 +234,40 @@ class CounterBase extends HTMLElement {
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     // Keep each scrolling list where the viewer left it when the card refreshes.
     const saved = {};
-    this.shadowRoot.querySelectorAll("[data-scroll]").forEach((el) => { saved[el.dataset.scroll] = el.scrollTop; });
+    this.shadowRoot.querySelectorAll("[data-scroll]").forEach((el) => {
+      saved[el.dataset.scroll] = { top: el.scrollTop, left: el.scrollLeft };
+    });
     this.shadowRoot.innerHTML = `<style>${CP_BASE}${this.styles?.() || ""}</style>${this.render()}`;
     this.afterRender?.();
     this._wireScroll(saved);
   }
 
-  /** Restore scroll positions, show a fade when more is below, drift back to the top when idle. */
+  /**
+   * Restore scroll positions, fade the edge where there's more to see, drift back to the start when idle.
+   * Vertical lists: [data-scroll].  Horizontal strips: [data-scroll][data-axis="x"].
+   */
   _wireScroll(saved) {
     this._scrollObserver?.disconnect();
     const lists = [...this.shadowRoot.querySelectorAll("[data-scroll]")];
     if (!lists.length) return;
     const idle = Number(this._config?.scroll_reset ?? 60);
-    const update = (el) => el.classList.toggle("fade", el.scrollHeight - el.scrollTop - el.clientHeight > 4);
+    const update = (el) => {
+      if (el.dataset.axis === "x") {
+        el.classList.toggle("fade-r", el.scrollWidth - el.scrollLeft - el.clientWidth > 4);
+        el.classList.toggle("fade-l", el.scrollLeft > 4);
+      } else {
+        el.classList.toggle("fade", el.scrollHeight - el.scrollTop - el.clientHeight > 4);
+      }
+    };
     for (const el of lists) {
-      if (saved[el.dataset.scroll]) el.scrollTop = saved[el.dataset.scroll];
+      const s = saved[el.dataset.scroll];
+      if (s) { el.scrollTop = s.top; el.scrollLeft = s.left; }
       update(el);
       el.addEventListener("scroll", () => {
         update(el);
-        clearTimeout(this._scrollTimer);
-        if (idle > 0 && el.scrollTop > 0) {
-          this._scrollTimer = setTimeout(() => el.scrollTo({ top: 0, behavior: "smooth" }), idle * 1000);
+        clearTimeout(el._idleTimer);
+        if (idle > 0 && (el.scrollTop > 0 || el.scrollLeft > 0)) {
+          el._idleTimer = setTimeout(() => el.scrollTo({ top: 0, left: 0, behavior: "smooth" }), idle * 1000);
         }
       }, { passive: true });
     }
@@ -289,26 +317,66 @@ class CounterBase extends HTMLElement {
 class CounterHeaderCard extends CounterBase {
   static getStubConfig() { return { subtitle: "Kitchen · Counter Panel" }; }
   tickMs = 10000;
-  tick() { this._draw(); }
-  validate(c) { return c; }
-  entities() { return [this._config.temperature_entity, this._config.alarm_entity].filter(Boolean); }
-  getCardSize() { return 1; }
+
+  // Only the clock and date change every tick; don't redraw (that would reset the controls strip).
+  tick() {
+    const r = this.shadowRoot;
+    if (!r) return;
+    const now = new Date();
+    const clock = r.querySelector(".clock");
+    const date = r.querySelector(".date");
+    if (clock) clock.textContent = cpTime(now);
+    if (date) date.textContent = this._dateText(now);
+  }
+
+  validate(c) {
+    c.controls = (c.controls || []).map((x) => (typeof x === "string" ? { entity: x } : x));
+    c.tile_width = Number(c.tile_width) || 210;
+    return c;
+  }
+
+  entities() {
+    return [this._config.temperature_entity, this._config.alarm_entity, ...this._config.controls.map((i) => i.entity)].filter(Boolean);
+  }
+
+  getCardSize() { return 2; }
+
+  _dateText(d) { return d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }); }
 
   styles() {
     return `
-      .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-      .when { display: flex; align-items: baseline; gap: 18px; min-width: 0; }
-      .clock { font-family: var(--_mono); font-size: 34px; font-weight: 500; letter-spacing: .5px; }
-      .date { font-family: var(--_display); font-size: 15px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
-      .sub { font-family: var(--_display); font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--_dim); margin-top: 2px; }
-      .pills { display: flex; gap: 10px; flex-wrap: wrap; }
-      .pill {
-        display: flex; align-items: center; gap: 9px; padding: 10px 16px; border-radius: 10px;
-        background: var(--_panel); border: 1px solid var(--_line);
+      ha-card.bare { padding: 2px 0; }
+      .wrap { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 20px; }
+      .when { display: flex; align-items: center; gap: 16px; min-width: 0; }
+      .clock { font-family: var(--_mono); font-size: 40px; font-weight: 500; line-height: 1; letter-spacing: .5px; white-space: nowrap; }
+      .rule { width: 1px; align-self: stretch; background: var(--_line); margin: 4px 0; }
+      .dt { display: flex; flex-direction: column; gap: 4px; }
+      .date { font-family: var(--_display); font-size: 16px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; line-height: 1.1; white-space: nowrap; }
+      .sub { font-family: var(--_display); font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--_dim); line-height: 1.1; white-space: nowrap; }
+
+      .strip { display: flex; gap: 10px; padding: 2px 0; min-width: 0; }
+      /* Short, wide tile: icon | name (full width) / status ........ value */
+      .ht {
+        flex: 0 0 var(--tw); height: 64px; box-sizing: border-box; padding: 10px 12px;
+        display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; grid-template-rows: auto auto;
+        align-items: center; column-gap: 10px; row-gap: 4px;
+        background: var(--_panel); border: 1px solid var(--_line); border-radius: 12px; cursor: pointer; text-align: left;
       }
-      .pill .v { font-family: var(--_mono); font-size: 16px; }
-      .pill .k { font-size: 12px; color: var(--_dim); }
-      .pill.alarm { font-family: var(--_display); font-size: 14px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase; }
+      .ht > .ic { grid-row: 1 / 3; }
+      .ht .nm { grid-column: 2 / 4; font-size: 13px; font-weight: 500; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .ht .sb { grid-column: 2; font-family: var(--_mono); font-size: 10.5px; color: var(--_dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .ht .rt { grid-column: 3; grid-row: 2; justify-self: end; display: flex; align-items: center; }
+      .ht.alert { border-color: color-mix(in srgb, var(--_red) 60%, transparent); }
+      .ht.ph { border-style: dashed; cursor: default; }
+      .ht .val { font-size: 14px; }
+      .ht.alarm { flex: none; width: auto; min-width: 160px; }
+      .ht.alarm .nm { font-family: var(--_display); font-size: 15px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase; }
+      .ht.temp .nm { font-family: var(--_mono); font-size: 16px; }
+      ${CP_TILE_BITS}
+      @media (max-width: 1000px) {
+        .wrap { grid-template-columns: minmax(0, 1fr) auto; row-gap: 12px; }
+        .strip { grid-column: 1 / -1; grid-row: 2; }
+      }
     `;
   }
 
@@ -339,32 +407,61 @@ class CounterHeaderCard extends CounterBase {
     return { text, color };
   }
 
+  _controlTile(item, idx) {
+    const s = this.state(item.entity);
+    const m = cpControlModel(s, item);
+    if (m.kind !== "device") {
+      const color = m.kind === "missing" ? "var(--_red)" : "var(--_faint)";
+      return `<div class="ht ph">${cpIcon(m.icon || "power", 20, color)}
+        <span class="nm" style="color:var(--_dim)">${cpEsc(m.name)}</span><span class="sb" style="color:${color}">${cpEsc(m.sub)}</span></div>`;
+    }
+    // Compact status for the strip: "2 h ago" instead of "Since 9/29 9:12 PM".
+    const domain = item.entity.split(".")[0];
+    const sub = ["lock", "cover", "binary_sensor"].includes(domain) && !item.subtitle ? cpAgo(s.last_changed) : m.sub;
+    return `<button class="ht${m.alert ? " alert" : ""}" data-act="c${idx}" data-mode="${m.mode}" title="${cpEsc(m.name)}">
+      ${cpIcon(m.icon, 20, m.iconColor)}
+      <span class="nm">${cpEsc(m.name)}</span><span class="sb">${cpEsc(sub)}</span>
+      <span class="rt">${m.right}</span></button>`;
+  }
+
   render() {
     const c = this._config;
     const now = new Date();
     const temp = this._temp();
     const alarm = this._alarm();
-    const date = now.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
-    const tempPill = temp
-      ? `<div class="pill tap" tabindex="0" role="button" data-act="temp">${cpIcon("thermostat", 18, "var(--_amber)")}<span class="v">${cpEsc(temp)}</span><span class="k">${cpEsc(c.temperature_label || "Indoors")}</span></div>`
+    const tempTile = temp
+      ? `<button class="ht temp" data-act="temp">${cpIcon("thermostat", 20, "var(--_amber)")}
+          <span class="nm">${cpEsc(temp)}</span><span class="sb">${cpEsc(c.temperature_label || "Indoors")}</span></button>`
       : "";
-    const alarmPill = alarm
-      ? `<div class="pill alarm tap" tabindex="0" role="button" data-act="alarm"
+    const alarmTile = alarm
+      ? `<button class="ht alarm" data-act="alarm"
            style="color: var(${alarm.color}); border-color: color-mix(in srgb, var(${alarm.color}) 45%, transparent);
-                  background: color-mix(in srgb, var(${alarm.color}) 12%, transparent);">
-           ${cpIcon("shield", 16, `var(${alarm.color})`)}<span>${cpEsc(alarm.text)}</span></div>`
+                  background: color-mix(in srgb, var(${alarm.color}) 12%, var(--_panel));">
+           ${cpIcon("shield", 20, `var(${alarm.color})`)}
+           <span class="nm">${cpEsc(alarm.text)}</span><span class="sb">${cpEsc(c.alarm_label || "Alarm")}</span></button>`
       : "";
+    const tiles = c.controls.map((it, i) => this._controlTile(it, i)).join("");
     return `<ha-card class="bare"><div class="wrap">
       <div class="when">
         <div class="clock">${cpEsc(cpTime(now))}</div>
-        <div><div class="date">${cpEsc(date)}</div>${c.subtitle ? `<div class="sub">${cpEsc(c.subtitle)}</div>` : ""}</div>
+        <div class="rule"></div>
+        <div class="dt"><div class="date">${cpEsc(this._dateText(now))}</div>${c.subtitle ? `<div class="sub">${cpEsc(c.subtitle)}</div>` : ""}</div>
       </div>
-      <div class="pills">${tempPill}${alarmPill}</div>
+      <div class="strip scroll-x" data-scroll="controls" data-axis="x" style="--tw:${c.tile_width}px" aria-label="Home controls">${tempTile}${tiles}</div>
+      ${alarmTile || "<span></span>"}
     </div></ha-card>`;
   }
 
   afterRender() {
-    this.bindActions((act) => this.moreInfo(act === "temp" ? this._config.temperature_entity : this._config.alarm_entity));
+    this.bindActions((act, el) => {
+      if (act === "temp") return this.moreInfo(this._config.temperature_entity);
+      if (act === "alarm") return this.moreInfo(this._config.alarm_entity);
+      const item = this._config.controls[Number(act.slice(1))];
+      if (!item) return;
+      if (el.dataset.mode === "custom") this.handleAction(item.tap_action, item.entity);
+      else if (el.dataset.mode === "toggle") this.handleAction({ action: "toggle" }, item.entity);
+      else this.moreInfo(item.entity);
+    });
   }
 }
 
@@ -491,6 +588,7 @@ class CounterCamerasCard extends CounterBase {
 /* ----------------------------------------------------------- calendar card */
 
 class CounterCalendarCard extends CounterBase {
+  scrollable = true;
   static getStubConfig(hass) {
     return { calendars: Object.keys(hass?.states || {}).filter((id) => id.startsWith("calendar.")).slice(0, 3).map((entity) => ({ entity })) };
   }
@@ -708,6 +806,7 @@ class CounterMealsCard extends CounterBase {
 /* ----------------------------------------------------------- shopping card */
 
 class CounterShoppingCard extends CounterBase {
+  scrollable = true;
   static getStubConfig() { return { entity: "todo.shopping_list" }; }
 
   validate(c) {
@@ -818,6 +917,7 @@ class CounterShoppingCard extends CounterBase {
 /* ------------------------------------------------------------ weather card */
 
 class CounterWeatherCard extends CounterBase {
+  scrollable = true;
   static getStubConfig(hass) {
     return { entity: Object.keys(hass?.states || {}).find((id) => id.startsWith("weather.")) || "weather.home" };
   }
@@ -884,7 +984,7 @@ class CounterWeatherCard extends CounterBase {
         ${cpIcon(fi, 18, color, 1.6)}<span class="tt">${deg(f.temperature)}/${deg(f.templow)}</span></div>`;
     }).join("");
     const iconColor = ["sunny", "partly"].includes(icon) ? "var(--_amber)" : icon === "night" ? "var(--_blue)" : "var(--_dim)";
-    return `<ha-card class="tap" tabindex="0" role="button" data-act="weather">
+    return `<ha-card class="tap" tabindex="0" role="button" data-act="weather"><div class="scroll" data-scroll="weather">
       <div class="now">${cpIcon(icon, 36, iconColor, 1.6)}
         <div><div class="t">${deg(a.temperature)}</div>
           <div class="c">${cpEsc(label)}${feels != null ? ` · Feels ${deg(feels)}` : ""}</div></div>
@@ -892,7 +992,7 @@ class CounterWeatherCard extends CounterBase {
       </div>
       ${next ? `<div class="fc">${next}</div>` : ""}
       ${c.scores ? `<div class="scores" data-slot="scores"></div>` : ""}
-    </ha-card>`;
+    </div></ha-card>`;
   }
 
   afterRender() {
@@ -914,9 +1014,94 @@ class CounterWeatherCard extends CounterBase {
   }
 }
 
+/* ------------------------------------------------- shared device-tile model */
+
+/**
+ * What a device tile shows, independent of its shape. Used by the controls card (square tiles)
+ * and the header strip (short, wide tiles).
+ *   kind: "placeholder" | "missing" | "device"
+ *   mode: "more-info" | "toggle" | "custom"   (what a tap does)
+ */
+function cpControlModel(s, item) {
+  const domain = (item.entity || "").split(".")[0];
+  const name = item.name || s?.attributes?.friendly_name || item.entity || "Device";
+  if (item.placeholder) {
+    return { kind: "placeholder", name, icon: item.icon || (domain === "media_player" ? "tv" : "power"), sub: item.placeholder_text || "Coming soon" };
+  }
+  if (!s) return { kind: "missing", name, sub: `Not found: ${item.entity || "no entity"}` };
+
+  const st = s.state;
+  const a = s.attributes || {};
+  const since = cpSince(s.last_changed);
+  const off = ["unavailable", "unknown"].includes(st);
+  let icon = item.icon || "power", iconColor = "var(--_accent)", right = "", sub = "", mode = "more-info", alert = false;
+
+  if (domain === "climate") {
+    icon = item.icon || "thermostat";
+    const cur = Number(a.current_temperature);
+    right = `<span class="val">${Number.isFinite(cur) ? `${Math.round(cur)}°` : "–"}</span>`;
+    const target = a.temperature != null ? ` · ${Math.round(Number(a.temperature))}°` : "";
+    const label = { heat_cool: "Auto", auto: "Auto", heat: "Heat", cool: "Cool", off: "Off", fan_only: "Fan", dry: "Dry" }[st] || st;
+    sub = `${label}${st === "off" ? "" : target}`;
+    // icon shows activity: accent while heating/cooling, dim when idle or off
+    const active = a.hvac_action && !["idle", "off"].includes(a.hvac_action);
+    iconColor = st === "off" ? "var(--_faint)" : active ? "var(--_accent)" : "var(--_dim)";
+  } else if (domain === "lock") {
+    const locked = st === "locked";
+    icon = item.icon || (locked ? "lock" : "unlock");
+    iconColor = locked ? "var(--_sage)" : "var(--_red)";
+    right = `<span class="tag" style="color:${iconColor}">${cpEsc(st.toUpperCase())}</span>`;
+    sub = since; alert = !locked && !off;
+  } else if (domain === "cover") {
+    const closed = st === "closed";
+    icon = item.icon || "garage";
+    iconColor = closed ? "var(--_sage)" : "var(--_amber)";
+    right = `<span class="tag" style="color:${iconColor}">${cpEsc(st.toUpperCase())}</span>`;
+    sub = since; alert = st === "open";
+  } else if (domain === "binary_sensor") {
+    const open = st === "on";
+    const isOpening = ["door", "window", "garage_door", "opening", undefined].includes(a.device_class);
+    icon = item.icon || (open ? "doorOpen" : "door");
+    iconColor = open ? "var(--_amber)" : "var(--_sage)";
+    right = `<span class="tag" style="color:${iconColor}">${isOpening ? (open ? "OPEN" : "CLOSED") : (open ? "ON" : "OFF")}</span>`;
+    sub = item.subtitle || since; alert = open && isOpening;
+  } else if (["light", "switch", "fan", "input_boolean"].includes(domain)) {
+    icon = item.icon || "bulb";
+    const on = st === "on";
+    iconColor = on ? "var(--_accent)" : "var(--_faint)";
+    right = `<span class="sw${on ? " on" : ""}"></span>`;
+    const bri = a.brightness != null ? ` · ${Math.round((Number(a.brightness) / 255) * 100)}%` : "";
+    sub = on ? `On${bri}` : "Off"; mode = "toggle";
+  } else if (domain === "media_player") {
+    icon = item.icon || "tv";
+    const playing = st === "playing";
+    iconColor = playing ? "var(--_accent)" : "var(--_dim)";
+    right = `<span class="tag" style="color:${iconColor}">${cpEsc(st.toUpperCase())}</span>`;
+    sub = a.media_title ? `${a.media_title}` : (a.app_name || "");
+  } else {
+    right = `<span class="val">${cpEsc(st)}${a.unit_of_measurement ? cpEsc(a.unit_of_measurement) : ""}</span>`;
+    sub = since;
+  }
+  if (off) { iconColor = "var(--_faint)"; right = `<span class="tag" style="color:var(--_faint)">OFFLINE</span>`; alert = false; }
+  if (item.tap_action) mode = "custom";
+  return { kind: "device", name, icon, iconColor, right, sub, mode, alert };
+}
+
+/* Shared tile bits (values, status tags, toggle switch). */
+const CP_TILE_BITS = `
+  .val { font-family: var(--_mono); font-size: 12px; }
+  .tag { font-family: var(--_mono); font-size: 10px; letter-spacing: .3px; white-space: nowrap; }
+  .sw { width: 32px; height: 17px; border-radius: 10px; background: var(--_line); position: relative; flex: none; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--_dim); transition: left .15s; }
+  .sw.on { background: var(--_accent); }
+  .sw.on::after { left: 17px; background: #1B1A17; }
+  @media (prefers-reduced-motion: reduce) { .sw::after { transition: none; } }
+`;
+
 /* ----------------------------------------------------------- controls card */
 
 class CounterControlsCard extends CounterBase {
+  scrollable = true;
   static getStubConfig() { return { items: [] }; }
 
   validate(c) {
@@ -940,86 +1125,23 @@ class CounterControlsCard extends CounterBase {
       .top { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 17px; }
       .nm { font-size: 11.5px; line-height: 1.25; overflow-wrap: anywhere; }
       .sb { font-family: var(--_mono); font-size: 10px; color: var(--_dim); }
-      .val { font-family: var(--_mono); font-size: 12px; }
-      .tag { font-family: var(--_mono); font-size: 10px; letter-spacing: .3px; }
-      .sw { width: 32px; height: 17px; border-radius: 10px; background: var(--_line); position: relative; flex: none; }
-      .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--_dim); transition: left .15s; }
-      .sw.on { background: var(--_accent); }
-      .sw.on::after { left: 17px; background: #1B1A17; }
-      @media (prefers-reduced-motion: reduce) { .sw::after { transition: none; } }
+      ${CP_TILE_BITS}
     `;
   }
 
   _tile(item, idx) {
-    const s = this.state(item.entity);
-    const domain = (item.entity || "").split(".")[0];
-    const name = cpEsc(item.name || s?.attributes?.friendly_name || item.entity || "Device");
-    if (item.placeholder) {
-      const icon = item.icon || (domain === "media_player" ? "tv" : "power");
-      return `<div class="tl wide ph">${cpIcon(icon, 20, "var(--_faint)")}
-        <div><div class="nm" style="color:var(--_dim)">${name}</div><div class="sb" style="color:var(--_faint)">${cpEsc(item.placeholder_text || "Coming soon")}</div></div></div>`;
+    const m = cpControlModel(this.state(item.entity), item);
+    if (m.kind === "placeholder") {
+      return `<div class="tl wide ph">${cpIcon(m.icon, 20, "var(--_faint)")}
+        <div><div class="nm" style="color:var(--_dim)">${cpEsc(m.name)}</div><div class="sb" style="color:var(--_faint)">${cpEsc(m.sub)}</div></div></div>`;
     }
-    if (!s) {
+    if (m.kind === "missing") {
       return `<div class="tl ph"><div class="top">${cpIcon("power", 16, "var(--_red)")}</div>
-        <div><div class="nm">${name}</div><div class="sb" style="color:var(--_red)">Not found: ${cpEsc(item.entity || "no entity")}</div></div></div>`;
+        <div><div class="nm">${cpEsc(m.name)}</div><div class="sb" style="color:var(--_red)">${cpEsc(m.sub)}</div></div></div>`;
     }
-    const st = s.state;
-    const a = s.attributes || {};
-    const since = cpSince(s.last_changed);
-    const off = ["unavailable", "unknown"].includes(st);
-    let icon = item.icon || "power", iconColor = "var(--_accent)", right = "", sub = "", action = "more-info", alert = false;
-
-    if (domain === "climate") {
-      icon = item.icon || "thermostat";
-      const cur = Number(a.current_temperature);
-      right = `<span class="val">${Number.isFinite(cur) ? `${Math.round(cur)}°` : "–"}</span>`;
-      const target = a.temperature != null ? ` · ${Math.round(Number(a.temperature))}°` : "";
-      const mode = { heat_cool: "Auto", auto: "Auto", heat: "Heat", cool: "Cool", off: "Off", fan_only: "Fan", dry: "Dry" }[st] || st;
-      sub = `${mode}${st === "off" ? "" : target}`;
-      // icon shows activity: accent while heating/cooling, dim when idle or off
-      const active = a.hvac_action && !["idle", "off"].includes(a.hvac_action);
-      iconColor = st === "off" ? "var(--_faint)" : active ? "var(--_accent)" : "var(--_dim)";
-    } else if (domain === "lock") {
-      const locked = st === "locked";
-      icon = item.icon || (locked ? "lock" : "unlock");
-      iconColor = locked ? "var(--_sage)" : "var(--_red)";
-      right = `<span class="tag" style="color:${iconColor}">${cpEsc(st.toUpperCase())}</span>`;
-      sub = since; alert = !locked && !off;
-    } else if (domain === "cover") {
-      const closed = st === "closed";
-      icon = item.icon || "garage";
-      iconColor = closed ? "var(--_sage)" : "var(--_amber)";
-      right = `<span class="tag" style="color:${iconColor}">${cpEsc(st.toUpperCase())}</span>`;
-      sub = since; alert = st === "open";
-    } else if (domain === "binary_sensor") {
-      const open = st === "on";
-      const isOpening = ["door", "window", "garage_door", "opening", undefined].includes(a.device_class);
-      icon = item.icon || (open ? "doorOpen" : "door");
-      iconColor = open ? "var(--_amber)" : "var(--_sage)";
-      right = `<span class="tag" style="color:${iconColor}">${isOpening ? (open ? "OPEN" : "CLOSED") : (open ? "ON" : "OFF")}</span>`;
-      sub = item.subtitle || since; alert = open && isOpening;
-    } else if (["light", "switch", "fan", "input_boolean"].includes(domain)) {
-      icon = item.icon || "bulb";
-      const on = st === "on";
-      iconColor = on ? "var(--_accent)" : "var(--_faint)";
-      right = `<span class="sw${on ? " on" : ""}"></span>`;
-      const bri = a.brightness != null ? ` · ${Math.round((Number(a.brightness) / 255) * 100)}%` : "";
-      sub = on ? `On${bri}` : "Off"; action = "toggle";
-    } else if (domain === "media_player") {
-      icon = item.icon || "tv";
-      const playing = st === "playing";
-      iconColor = playing ? "var(--_accent)" : "var(--_dim)";
-      right = `<span class="tag" style="color:${iconColor}">${cpEsc(st.toUpperCase())}</span>`;
-      sub = a.media_title ? `${a.media_title}` : (a.app_name || "");
-    } else {
-      right = `<span class="val">${cpEsc(st)}${a.unit_of_measurement ? cpEsc(a.unit_of_measurement) : ""}</span>`;
-      sub = since;
-    }
-    if (off) { iconColor = "var(--_faint)"; right = `<span class="tag" style="color:var(--_faint)">OFFLINE</span>`; alert = false; }
-    if (item.tap_action) action = "custom";
-    return `<button class="tl${alert ? " alert" : ""}${item.wide ? " wide" : ""}" data-act="${idx}" data-mode="${action}">
-      <div class="top">${cpIcon(icon, 16, iconColor)}${right}</div>
-      <div><div class="nm">${name}</div><div class="sb">${cpEsc(sub)}</div></div></button>`;
+    return `<button class="tl${m.alert ? " alert" : ""}${item.wide ? " wide" : ""}" data-act="${idx}" data-mode="${m.mode}">
+      <div class="top">${cpIcon(m.icon, 16, m.iconColor)}${m.right}</div>
+      <div><div class="nm">${cpEsc(m.name)}</div><div class="sb">${cpEsc(m.sub)}</div></div></button>`;
   }
 
   render() {
@@ -1112,6 +1234,8 @@ class CounterLayoutCard extends HTMLElement {
       .page.fit > .cols.grow { flex: 1 1 0; min-height: ${minCol}px; grid-template-rows: minmax(0, 1fr); }
       .page.fit .cols.grow > .col { min-height: 0; }
       .page.fit .cols.grow > .col.fill > :last-child { flex: 1 1 0; min-height: ${Number(cfg.min_card_height ?? 160)}px; }
+      /* Other cards that can scroll keep their natural height but may shrink (and scroll) when space runs out. */
+      .page.fit .cols.grow > .col > [scrollable]:not(:last-child) { flex: 0 1 auto; min-height: ${Number(cfg.min_card_height ?? 160)}px; }
 
       @media (max-width: ${Number(cfg.stack_below) || 900}px) {
         .cols { grid-template-columns: minmax(0, 1fr); }
